@@ -1,11 +1,16 @@
 <?php
 
-class Svfcode_Spamblock {
+class SvfcodeSpamblock {
 
     /**
-     * @var Svfcode_Spamblock
+     * @var SvfcodeSpamblock
      */
     private static $inst;
+
+    /**
+     * @var string
+     */
+    private $nonce = '';
 
     public static function instance()
     {
@@ -21,13 +26,15 @@ class Svfcode_Spamblock {
     public function init()
     {
         if( ! wp_doing_ajax() && ! is_admin() ) {
-            add_action( 'wp_footer', [ $this, 'main_js' ], 99 );
+            add_action( 'comment_form', [ $this, 'mainJs' ], 99 );
         }
 
-        add_action("wp_ajax_get_api_user_ip", [ $this, 'get_api_user_ip' ]);
-        add_action("wp_ajax_nopriv_get_api_user_ip", [ $this, 'get_api_user_ip' ]);
+        add_action("wp_ajax_get_api_user_ip", [ $this, 'getApiUserIp' ]);
+        add_action("wp_ajax_nopriv_get_api_user_ip", [ $this, 'getApiUserIp' ]);
 
-        add_filter( 'preprocess_comment', [ $this, 'block_spam' ], 0 );
+        add_filter( 'preprocess_comment', [ $this, 'blockSpam' ], 0 );
+
+        $this->nonce = wp_create_nonce('get_api_user_ip');;
     }
 
     /**
@@ -35,16 +42,20 @@ class Svfcode_Spamblock {
      *
      * @return array
      */
-    public function block_spam($commentdata)
+    public function blockSpam($commentdata)
     {
-        if ($commentdata["comment_author_IP"] !== $_POST["svfcode_spamblock_client_ip"]) {
-            wp_die( $this->block_form() );
+        if(!isset($_REQUEST['_wpnonce']) || !wp_verify_nonce( $_REQUEST['_wpnonce'], 'get_api_user_ip') ) {
+            wp_die( $this->blockForm() );
+        }
+
+        if (isset($_POST['svfcode_spamblock_client_ip']) && $commentdata["comment_author_IP"] !== $_POST["svfcode_spamblock_client_ip"]) {
+            wp_die( $this->blockForm() );
         }
 
         return $commentdata;
     }
 
-    public function main_js()
+    public function mainJs()
     {
         global $post;
 
@@ -52,36 +63,26 @@ class Svfcode_Spamblock {
            return;
         }
 
-        ?>
-            <script id="svfcode_spamblock">
-                (function() {
-                    fetch("<?php echo admin_url('admin-ajax.php'); ?>?action=get_api_user_ip", {
-                        method: 'GET',
-                        headers: {
-                            'Accept': 'application/json'
-                        },
-                    }).then(function(response) {
-                        return response.json()
-                    }).then(function(data) {
-                        if (data.data && data.data.success === true) {
-                            let input = document.createElement("input");
-                            input.setAttribute("type", "hidden");
-                            input.setAttribute("name", "svfcode_spamblock_client_ip");
-                            input.setAttribute("value", data.data.ip);
-                            if (document.getElementById("commentform")) {
-                                document.getElementById("commentform").appendChild(input);
-                            }
-                        }
-                    }).catch(function(err) {
+        wp_enqueue_script( 'svfcode_spamblock_script', plugin_dir_url( __FILE__ ) . 'assets/js/script.js' );
 
-                    });
-                })()
-            </script>
-        <?php
+        $data = [
+            "url_get_ip" => admin_url('admin-ajax.php'),
+            "ajax_nonce" => $this->nonce
+        ];
+
+        wp_localize_script(
+            'svfcode_spamblock_script',
+            'ajax_data',
+            $data
+        );
     }
 
-    public function get_api_user_ip()
+    public function getApiUserIp()
     {
+        if(!isset($_REQUEST['_wpnonce']) || !wp_verify_nonce( $_REQUEST['_wpnonce'], 'get_api_user_ip') ) {
+            wp_send_json_error();
+        }
+
         $ip = null;
 
         if (!empty($_SERVER['HTTP_CLIENT_IP'])) {
@@ -93,7 +94,11 @@ class Svfcode_Spamblock {
         }
 
         if ( ! is_null($ip) ) {
-            wp_send_json_error(['success' => true, 'ip' => $ip]);
+            wp_send_json_success([
+                'success' => true,
+                'ip' => $ip,
+                'nonce' => $this->nonce
+            ]);
         }
 
         wp_die();
@@ -102,15 +107,13 @@ class Svfcode_Spamblock {
     /*
      * Output form when comment has been blocked.
      */
-    private function block_form()
+    private function blockForm()
     {
-        ob_start();
         ?>
             <h1><?= __( 'Antispam block your comment!', 'svfcode-spamblock' ) ?></h1>
             <p>
                 <a href="javascript:history.back()">← Назад</a>
             </p>
         <?php
-        return ob_get_clean();
     }
 }
