@@ -12,10 +12,11 @@ Version: 0.1.0
 Author URI: https://t.me/SergeyFrolenko
 */
 
-require_once __DIR__ . '/class-Svfcode_Spamblock.php';
+require_once __DIR__ . '/SvfcodeSpamblock.php';
 
-add_action('init', 'svfcode_spamblock', 11);
+add_action('init', 'svfcodeSpamblock', 11);
 
-function svfcode_spamblock(){
-    return Svfcode_Spamblock::instance();
+function svfcodeSpamblock()
+{
+    SvfcodeSpamblock::instance();
 }
